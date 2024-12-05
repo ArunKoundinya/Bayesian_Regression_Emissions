@@ -49,18 +49,17 @@ model {
 
   // Likelihood
   emissions ~ normal(beta_0 + beta_year * year_centered + X_commodity * beta_commodity, sigma);
-  
-  // Log-likelihood
-  target += normal_lpdf(emissions | beta_0 + beta_year * year_centered + X_commodity * beta_commodity, sigma);
 }
-
-
 
 generated quantities {
   vector[N] y_rep;  // Posterior predictions for emissions
-
+  real log_lik[N];  // To store log-likelihood values for each data point
+  
   for (n in 1:N) {
     y_rep[n] = normal_rng(beta_0 + beta_year * year_centered[n] + dot_product(X_commodity[n], beta_commodity), sigma);
+    
+    // Calculate log-likelihood for each data point
+    log_lik[n] = normal_lpdf(emissions[n] | beta_0 + beta_year * year_centered[n] + dot_product(X_commodity[n], beta_commodity), sigma);
   }
 }
 "
@@ -106,6 +105,6 @@ abline(a = 0, b = 1, col = "red")
 
 
 library(loo)
-log_lik <- extract_log_lik(fit)
+log_lik <- extract(fit, pars = "log_lik")$log_lik
 loo_result <- loo(log_lik)
 print(loo_result)
