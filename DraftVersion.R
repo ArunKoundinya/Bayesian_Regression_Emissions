@@ -49,6 +49,19 @@ model {
 
   // Likelihood
   emissions ~ normal(beta_0 + beta_year * year_centered + X_commodity * beta_commodity, sigma);
+  
+  // Log-likelihood
+  target += normal_lpdf(emissions | beta_0 + beta_year * year_centered + X_commodity * beta_commodity, sigma);
+}
+
+
+
+generated quantities {
+  vector[N] y_rep;  // Posterior predictions for emissions
+
+  for (n in 1:N) {
+    y_rep[n] = normal_rng(beta_0 + beta_year * year_centered[n] + dot_product(X_commodity[n], beta_commodity), sigma);
+  }
 }
 "
 
@@ -68,3 +81,31 @@ stan_model <- stan_model(model_code = stan_model_code)
 fit <- sampling(stan_model, data = stan_data, iter = 2000, chains = 4, seed = 123)
 
 print(fit, pars = c("beta_0", "beta_year", "beta_commodity", "sigma"))
+
+library(bayesplot)
+
+posterior_predictions <- extract(fit, pars = "y_rep")$y_rep  # Assuming `y_rep` is modeled in Stan
+
+# 1. Density overlay: Compare observed and predicted emissions
+ppc_dens_overlay(y = emissions$total_emissions_MtCO2e, yrep = posterior_predictions[1:100, ])
+
+# 2. Predicted vs Observed: Scatter plot
+ppc_scatter_avg(y = emissions$total_emissions_MtCO2e, yrep = posterior_predictions)
+
+# 3. Summary statistics: Mean and standard deviation checks
+ppc_stat(y = emissions$total_emissions_MtCO2e, yrep = posterior_predictions, stat = "mean")
+ppc_stat(y = emissions$total_emissions_MtCO2e, yrep = posterior_predictions, stat = "sd")
+
+mcmc_areas(fit, regex_pars = "beta_commodity\\[")
+
+y_pred_mean <- apply(posterior_predictions, 2, mean)
+plot(emissions$total_emissions_MtCO2e, y_pred_mean,
+     xlab = "Observed Emissions", ylab = "Predicted Emissions",
+     main = "Observed vs Predicted Emissions")
+abline(a = 0, b = 1, col = "red")
+
+
+library(loo)
+log_lik <- extract_log_lik(fit)
+loo_result <- loo(log_lik)
+print(loo_result)
