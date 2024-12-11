@@ -144,7 +144,7 @@ traceplot(fit, pars = c("beta_0", "beta_year", "sigma", "beta_commodity"))
 
 ### Effective Sample Size and R-hat
 ```{r diagnostics}
-summary(fit)$summary
+summary(fit,pars = c("beta_0", "beta_year", "sigma", "beta_commodity"))$summary
 ```
 **Insight:** Effective sample size and R-hat values help diagnose potential issues with convergence and sampling efficiency.
 
