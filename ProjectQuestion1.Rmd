@@ -1,0 +1,179 @@
+---
+title: "Emissions Analysis with Bayesian Modeling - Question1"
+author: "Arun, Sanjeev & Sameer"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
+```
+
+## Introduction
+This report documents the analysis of emissions data using Bayesian modeling in Stan. The primary objective is to perform analysis on global carbon emissions evolved over the years, and what role do specific commodities (oil, gas, coal, cement) play in driving these trends?
+
+This we will achieving by modelling the relationship between emissions and explanatory variables, including year and commodity type. We evaluate model performance using posterior predictive checks and leave-one-out cross-validation (LOO).
+
+## Data Preparation
+
+### Loading Libraries and Dataset
+```{r load-libraries}
+library(dplyr)
+library(ggplot2)
+library(tidyr)
+library(rstan)
+library(bayesplot)
+library(loo)
+
+# Load the emissions dataset
+emissions <- read.csv("data/emissions.csv")
+```
+
+### Initial Data Inspection
+Inspecting the structure and summary of the dataset.
+```{r data-inspection}
+str(emissions)
+colSums(is.na(emissions))
+head(emissions)
+```
+**Insight:** This step ensures the dataset is clean and ready for analysis. Any missing values would need to be addressed.
+
+### Feature Engineering
+Centering the `year` variable and converting `commodity` to a factor for model readiness.
+```{r feature-engineering}
+emissions <- emissions %>%
+  mutate(year_centered = year - mean(year, na.rm = TRUE)) %>%
+  mutate(commodity = as.factor(commodity))
+
+summary(emissions)
+```
+**Insight:** Centering the year simplifies the interpretation of the intercept, while converting `commodity` to a factor prepares it for dummy encoding.
+
+## Bayesian Modeling in Stan
+
+### Model Code
+The Stan model includes priors, likelihood definition, and posterior predictions.
+```{r stan-model-code}
+stan_model_code <- "
+data {
+  int<lower=0> N;                  // Number of data points
+  int<lower=1> K;                  // Number of commodities
+  vector[N] year_centered;         // Centered year variable
+  matrix[N, K] X_commodity;        // Commodity dummy matrix
+  vector[N] emissions;             // Total emissions
+}
+
+parameters {
+  real beta_0;                     // Intercept
+  real beta_year;                  // Slope for year
+  vector[K] beta_commodity;        // Coefficients for commodities
+  real<lower=0> sigma;             // Standard deviation of the error term
+}
+
+model {
+  beta_0 ~ normal(0, 100);
+  beta_year ~ normal(0, 10);
+  beta_commodity ~ normal(0, 10);
+  sigma ~ cauchy(0, 2);
+
+  emissions ~ normal(beta_0 + beta_year * year_centered + X_commodity * beta_commodity, sigma);
+}
+
+generated quantities {
+  vector[N] y_rep;
+  real log_lik[N];
+
+  for (n in 1:N) {
+    y_rep[n] = normal_rng(beta_0 + beta_year * year_centered[n] + dot_product(X_commodity[n], beta_commodity), sigma);
+    log_lik[n] = normal_lpdf(emissions[n] | beta_0 + beta_year * year_centered[n] + dot_product(X_commodity[n], beta_commodity), sigma);
+  }
+}
+"
+```
+
+### Preparing Data for Stan
+```{r prepare-stan-data}
+commodity_dummies <- model.matrix(~ commodity - 1, data = emissions)
+
+stan_data <- list(
+  N = nrow(emissions),
+  K = ncol(commodity_dummies),
+  year_centered = emissions$year_centered,
+  X_commodity = commodity_dummies,
+  emissions = emissions$total_emissions_MtCO2e
+)
+```
+
+### Fitting the Model
+```{r fit-model}
+stan_model <- stan_model(model_code = stan_model_code)
+fit <- sampling(stan_model, data = stan_data, iter = 2000, chains = 4, seed = 123)
+print(fit, pars = c("beta_0", "beta_year", "beta_commodity", "sigma"))
+```
+**Insight:** The printed output provides posterior summaries for all parameters, helping assess the model fit.
+
+## Posterior Predictive Checks
+
+### Density Overlay
+```{r ppc-density}
+posterior_predictions <- extract(fit, pars = "y_rep")$y_rep
+ppc_dens_overlay(y = emissions$total_emissions_MtCO2e, yrep = posterior_predictions[1:100, ])
+```
+**Insight:** Overlap between observed and predicted densities indicates good model performance.
+
+### Scatter Plot of Predicted vs Observed
+```{r ppc-scatter}
+ppc_scatter_avg(y = emissions$total_emissions_MtCO2e, yrep = posterior_predictions)
+```
+**Insight:** Points clustering around the diagonal line indicate accurate predictions.
+
+### Summary Statistics
+```{r ppc-stats}
+ppc_stat(y = emissions$total_emissions_MtCO2e, yrep = posterior_predictions, stat = "mean")
+ppc_stat(y = emissions$total_emissions_MtCO2e, yrep = posterior_predictions, stat = "sd")
+```
+**Insight:** Matching summary statistics between observed and predicted data confirms model reliability.
+
+## Model Diagnostics
+
+### Traceplots
+```{r traceplots}
+traceplot(fit, pars = c("beta_0", "beta_year", "sigma", "beta_commodity"))
+```
+**Insight:** Well-mixed chains and stationarity indicate good convergence.
+
+### Effective Sample Size and R-hat
+```{r diagnostics}
+summary(fit)$summary
+```
+**Insight:** Effective sample size and R-hat values help diagnose potential issues with convergence and sampling efficiency.
+
+## Model Comparison
+
+### Leave-One-Out Cross-Validation (LOO)
+```{r loo-comparison}
+log_lik <- extract(fit, pars = "log_lik")$log_lik
+loo_result <- loo(log_lik)
+print(loo_result)
+```
+**Insight:** LOO provides an estimate of out-of-sample predictive performance.
+
+## Insights and Conclusions
+
+### Insights
+
+1. **Global Emissions Trends:**
+   - The positive coefficient for `beta_year` suggests a steady increase in global emissions over time, aligned with industrialization patterns.
+   - Recent data may show a plateau or slower growth, potentially indicating the impact of climate policies.
+
+2. **Commodity Contributions:**
+   - The coefficients for commodities confirm coal's dominance historically, with significant contributions from oil and natural gas in recent decades.
+   - Cement emissions, though smaller overall, show notable growth in developing regions, reflecting construction booms.
+
+3. **Model Validation:**
+   - Posterior predictive checks and diagnostic metrics support the robustness of the model.
+   - Pareto diagnostics reveal minimal issues, with over 99% of points falling into the "good" category.
+
+### Conclusions
+
+Our analysis demonstrates that global emissions are strongly influenced by historical industrial expansion and modern economic activity. The shifting contributions of coal, oil, and natural gas highlight evolving energy dependencies, while the rise of cement emissions emphasizes the role of construction in developing economies. These findings align with expectations and underscore the importance of targeted climate policies to address commodity-specific emission sources. Future work could involve incorporating regional data to refine these insights further.

@@ -108,3 +108,10 @@ library(loo)
 log_lik <- extract(fit, pars = "log_lik")$log_lik
 loo_result <- loo(log_lik)
 print(loo_result)
+
+
+traceplot(fit, pars = c("beta_0", "beta_year", "sigma", "beta_commodity"))
+
+
+summary(fit)$summary
+
