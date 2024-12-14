@@ -1,5 +1,7 @@
 ---
 title: "Question 2: Interaction Analysis of Production Levels and Emissions"
+author: "Arun, Sanjeev & Sameer"
+date: "`r Sys.Date()`"
 output: html_document
 ---
 
@@ -23,25 +25,23 @@ library(loo)
 Load the emissions dataset and preprocess it to create centered variables and dummy-encoded commodity types.
 
 ```{r data-prep}
-emissions <- read.csv("data/emissions.csv")
+emissions <- read.csv("emissions.csv")
 
 # Summary of the dataset
 str(emissions)
 colSums(is.na(emissions))
 head(emissions)
 
-emissions <- emissions %>%
-  mutate(year_centered = year - mean(year, na.rm = TRUE))
-
 # Convert commodity to factor
 emissions <- emissions %>%
   mutate(commodity = as.factor(commodity))
 
-# Create dummy variables for commodity
 commodity_dummies <- model.matrix(~ commodity - 1, data = emissions)
+
+
 ```
 
----
+**Insight:** Converting `commodity` to a factor prepares it for dummy encoding.This step ensures the dataset is clean and ready for analysis. Any missing values would need to be addressed.
 
 ## Model Specification
 
@@ -107,7 +107,12 @@ stan_data <- list(
 stan_model <- stan_model(model_code = stan_model_code)
 
 # Fit the model
-fit <- sampling(stan_model, data = stan_data, iter = 2000, chains = 4, seed = 123)
+fit <- sampling(
+  stan_model,
+  data = stan_data,
+  iter = 4000,  # Increase iterations
+  chains = 4,
+  seed = 123)
 ```
 
 ---
@@ -122,10 +127,12 @@ Check the convergence of parameters using trace plots.
 traceplot(fit, pars = c("beta_0", "beta_prod", "sigma", "beta_commodity", "beta_interaction"))
 ```
 
+**Insight:** Well-mixed chains and stationarity indicate good convergence. Here, we are to converge only one variable because of limitations of hardware even in Cyverse. Used 64 GB RAM and above 5000 iterations the Rstudio is crashing
+
 ### Effective Sample Sizes
 
 ```{r ess}
-summary(fit)$summary[, c("n_eff", "Rhat")]
+summary(fit, pars = c("beta_0", "beta_prod", "sigma", "beta_commodity", "beta_interaction"))$summary[, c("n_eff", "Rhat")]
 ```
 
 ### Posterior Predictive Checks
@@ -140,7 +147,15 @@ ppc_dens_overlay(y = emissions$total_emissions_MtCO2e, yrep = posterior_predicti
 ppc_scatter_avg(y = emissions$total_emissions_MtCO2e, yrep = posterior_predictions)
 ```
 
----
+**Insight:** Points clustering around the diagonal line indicate accurate predictions.
+
+### Summary Statistics
+
+```{r ppc-stats}
+ppc_stat(y = emissions$total_emissions_MtCO2e, yrep = posterior_predictions, stat = "mean")
+ppc_stat(y = emissions$total_emissions_MtCO2e, yrep = posterior_predictions, stat = "sd")
+```
+**Insight:** Matching summary statistics between observed and predicted data confirms model reliability.
 
 ## Insights and Results
 
@@ -162,12 +177,11 @@ loo_result <- loo(log_lik)
 print(loo_result)
 ```
 
----
+**Insight:** LOO provides an estimate of out-of-sample predictive performance.
 
 ## Conclusions
 
 1. **Impact of Production Levels**: The interaction analysis highlights that production levels significantly influence emissions, with commodity type playing a critical moderating role.
 2. **Differentiated Strategies**: Policies aimed at reducing emissions should consider commodity-specific dynamics to achieve targeted reductions.
-3. **Next Steps**: Further analyses could explore temporal trends or additional interaction effects with geographic regions to deepen insights.
 
 This analysis provides actionable insights into the relationship between production levels and emissions, aligning with the goal of quantifying commodity-specific differences.
